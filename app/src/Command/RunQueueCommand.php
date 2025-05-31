@@ -4,7 +4,7 @@ namespace App\Command;
 
 use App\Entity\Task;
 use App\Service\TaskRunnerService;
-use App\Service\Tasks\UploadTask;
+use App\Service\Tasks\TaskProcessorInterface;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -12,17 +12,23 @@ use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\DependencyInjection\Attribute\TaggedIterator;
 
 #[AsCommand(
-    name: TaskRunnerService::TASK_UPLOAD_FILE,
-    description: 'Upload file processing task',
+    name: 'task:run',
+    description: 'Fake queue processing task',
 )]
-class ProcessUploadCommand extends Command
+class RunQueueCommand extends Command
 {
+    /**
+     * @param EntityManagerInterface $em
+     * @param string $app_dir
+     * @param iterable<TaskProcessorInterface> $handlers
+     */
     public function __construct(
-        private UploadTask             $manager,
         private EntityManagerInterface $em,
-        private readonly string        $app_dir
+        private readonly string        $app_dir,
+        private readonly iterable      $handlers
     )
     {
         parent::__construct();
@@ -55,9 +61,27 @@ class ProcessUploadCommand extends Command
             return Command::FAILURE;
         }
 
-        file_put_contents($this->app_dir . TaskRunnerService::LOG_FILE_PATH, json_encode(['task_id' => $task_id, 'message' => 'Task started']) . "\n", FILE_APPEND);
-        $this->manager->process($task);
-        file_put_contents($this->app_dir . TaskRunnerService::LOG_FILE_PATH, json_encode(['task_id' => $task_id, 'message' => 'Task completed']) . "\n", FILE_APPEND);
-        return Command::SUCCESS;
+        $type = $task->getType();
+
+        foreach ($this->handlers as $handler) {
+            if ($handler->supports($type)) {
+                file_put_contents($this->app_dir . TaskRunnerService::LOG_FILE_PATH, json_encode(['task_id' => $task_id, 'message' => 'Task started']) . "\n", FILE_APPEND);
+
+                try {
+                    $handler->process($task);
+                    file_put_contents($this->app_dir . TaskRunnerService::LOG_FILE_PATH, json_encode(['task_id' => $task_id, 'message' => 'Task completed']) . "\n", FILE_APPEND);
+
+                } catch (\Exception $e) {
+                    file_put_contents($this->app_dir . TaskRunnerService::LOG_FILE_PATH, json_encode(['task_id' => $task_id, 'message' => $e->getMessage()]) . "\n", FILE_APPEND);
+
+                }
+
+
+                return Command::SUCCESS;
+            }
+        }
+
+        file_put_contents($this->app_dir . TaskRunnerService::LOG_FILE_PATH, json_encode(['task_id' => $task_id, 'message' => 'Handler not found']) . "\n", FILE_APPEND);
+        return Command::FAILURE;
     }
 }

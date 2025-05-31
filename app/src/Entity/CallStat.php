@@ -6,6 +6,7 @@ use App\Repository\CallStatRepository;
 use Doctrine\ORM\Mapping as ORM;
 
 #[ORM\Entity(repositoryClass: CallStatRepository::class)]
+#[ORM\UniqueConstraint(columns: ['customer_id', 'task_id'])]
 class CallStat
 {
     #[ORM\Id]

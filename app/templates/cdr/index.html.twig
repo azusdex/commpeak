@@ -36,11 +36,11 @@
 <table id="cdr-table">
     <thead>
     <tr>
-        <th>Call ID</th>
-        <th>Source</th>
-        <th>Destination</th>
-        <th>Duration</th>
-        <th>Timestamp</th>
+        <th>Customer ID</th>
+        <th>Same Calls</th>
+        <th>Same Duration</th>
+        <th>Total Calls</th>
+        <th>Total Duration</th>
     </tr>
     </thead>
     <tbody></tbody>
@@ -51,7 +51,8 @@
     const cdrTableBody = document.querySelector('#cdr-table tbody');
     const taskTableBody = document.querySelector('#task-table tbody');
 
-    let shouldPoll = false;
+    let waitUploadTask = false;
+    let showedStats = false;
 
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -63,19 +64,23 @@
         await fetchTasks();
     });
 
-    async function fetchTable() {
-        const res = await fetch('/cdr/list-records');
+    async function fetchTable(id) {
+        console.log(id);
+        const res = await fetch(`/cdr/records/${id}`);
         if (!res.ok) return;
         const data = await res.json();
+
+        console.log(data);
+
         cdrTableBody.innerHTML = '';
         for (const row of data) {
             const tr = document.createElement('tr');
             tr.innerHTML = `
-                <td>${row.call_id}</td>
-                <td>${row.source}</td>
-                <td>${row.destination}</td>
-                <td>${row.duration}</td>
-                <td>${row.timestamp}</td>
+                <td>${row.customer_id}</td>
+                <td>${row.same_calls}</td>
+                <td>${row.same_duration}</td>
+                <td>${row.total_calls}</td>
+                <td>${row.total_duration}</td>
             `;
             cdrTableBody.appendChild(tr);
         }
@@ -87,56 +92,73 @@
 
         const data = await res.json();
         taskTableBody.innerHTML = '';
-        shouldPoll = false;
+        waitUploadTask = false;
 
-        for (const task of data) {
-            if (task.status === 'pending' || task.status === 'processing') {
-                shouldPoll = true;
+        Object.keys(data).forEach((index) => {
+            const task = data[index];
+            const taskId = task.id;
+            const taskData = task.status;
+            const uploadTask = taskData.upload;
+            const statsTask = taskData.stats || null;
+            const uploadStatus = uploadTask.status;
+            const statsStatus = statsTask ? statsTask.status : 'new';
+
+            if ((uploadStatus !== 'finished' && uploadStatus !== 'error') || (uploadStatus === 'finished' && statsStatus !== 'finished' && statsStatus !== 'error') ) {
+                waitUploadTask = true;
+            }
+
+            let buttons = '';
+
+            if (uploadStatus === 'finished' && statsStatus === 'finished') {
+                buttons = `<button onclick="viewStats(${taskId})">Show Stats</button>
+                            <button onclick="recalculateTask(${taskId})">Recalculate</button>`;
+            } else if (uploadStatus === 'error' && statsStatus === 'error') {
+                buttons = `<button onclick="rerunTask(${taskId})">Retry</button>`
             }
 
             const tr = document.createElement('tr');
-            const button = task.status === 'error' || task.status === 'stopped'
-                ? `<button onclick="rerunTask(${task.id})">Retry</button>`
-                : `<button onclick="viewAggregation(${task.id})">Show</button>`
-
-            const total_lines = task.total_lines;
-            const result = task.result;
-
             tr.innerHTML = `
                 <td>${task.id}</td>
                 <td>${task.filename}</td>
-                <td>${task.status}</td>
-                <td>
-                    <ul>
-                    <li>Proggres: ${total_lines} / ${result.processed}</li>
-                    <li>Inserted: ${result.added}</li>
-                    <li>Skipped: ${result.skipped}</li>
+                <td><ul>
+                    <li>Upload Task: ${uploadStatus}</li>
+                    <li>Calculate Task: ${statsStatus}</li>
                     </ul>
                 </td>
-                <td>${button}</td>
+                <td>
+                    <ul>
+                    <li>Upload Task: <br/>records: ${uploadTask.total_lines || 0} / ${uploadTask.processed || 0}</li>
+                    <li>Calculate stats: <br/>records: ${statsTask ? statsTask.total_lines : 0} / ${statsTask ? statsTask.calculated_lines : 0}</li>
+                    </ul>
+                </td>
+                <td>${buttons}</td>
             `;
             taskTableBody.appendChild(tr);
-        }
+        })
     }
 
     async function poll() {
-        if (shouldPoll) {
+        if (waitUploadTask) {
             await fetchTasks();
         }
     }
 
-    function viewAggregation(id) {
-        alert('TODO: Aggregation for task ' + id);
+    function viewStats(id) {
+        fetchTable(id);
     }
 
     function rerunTask(id) {
-        fetch(`/upload-task/rerun/${id}`, { method: 'POST' })
+        fetch(`/task/rerun/${id}`, { method: 'POST' })
+            .then(fetchTasks);
+    }
+
+    function recalculateTask(id) {
+        fetch(`/task/recalculate/${id}`, { method: 'POST' })
             .then(fetchTasks);
     }
 
     fetchTasks();
-    fetchTable();
-    setInterval(poll, 1000);
+    setInterval(poll, 2000);
 </script>
 </body>
 </html>
