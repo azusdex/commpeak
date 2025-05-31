@@ -14,12 +14,13 @@ use Symfony\Component\HttpFoundation\File\UploadedFile;
 
 class UploadTask implements TaskProcessorInterface
 {
-    const GEO_KEY = 'b9c9e0c9e04642f5a66b2278c4cb1e25';
     const BATCH_SIZE = 1000;
 
     public function __construct(
         private readonly EntityManagerInterface $em,
-        private readonly string $app_dir
+        private readonly StatsTask $stats_task,
+        private readonly TaskRunnerService $runner,
+        private readonly string                 $app_dir
     ) {}
 
     /**
@@ -95,7 +96,7 @@ class UploadTask implements TaskProcessorInterface
                 if ($added % self::BATCH_SIZE === 0) {
                     $this->updateProgress($task, $line_number, $added, $skipped, true);
 
-                    $task = $this->em->getRepository(UploadTask::class)->find($task->getId());
+                    $task = $this->em->getRepository(Task::class)->find($task->getId());
                 }
             }
 
@@ -104,6 +105,9 @@ class UploadTask implements TaskProcessorInterface
             }
 
             $this->updateDoneStatus($task, $line_number, $added, $skipped);
+
+            $aggregate_task = $this->stats_task->create(['parent_task' => $task]);
+            $this->runner->startBackgroundProcess(TaskRunnerService::TASK_RUN_COMMAND, [$aggregate_task->getId()]);
         } catch (\Throwable $e) {
 
             $this->updateFailStatus($task, $e->getMessage());

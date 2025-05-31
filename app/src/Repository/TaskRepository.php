@@ -17,19 +17,44 @@ class TaskRepository extends ServiceEntityRepository
         parent::__construct($registry, Task::class);
     }
 
-    public function findUploadTasks(): array
+    public function findTasksStatus(): array
     {
         $tasks = $this->findBy(['type' => TaskRunnerService::TASK_UPLOAD_FILE], ['created_at' => 'DESC']);
 
-        return array_map(fn($task) => [
-            'id'          => $task->getId(),
-            'filename'     => $task->getData()['original_filename'],
-            'status'      => $task->getStatus(),
-            'result'      => $task->getResult() ?? [],
-            'total_lines' => $task->getData()['total_lines'] ?? 0
-        ], $tasks);
+        $results = [];
+
+        foreach ($tasks as $task) {
+            $res = [
+                'id' => $task->getId(),
+                'filename' => $task->getData()['original_filename'],
+                'status' => [
+                    'upload' => [
+                        'status'      => $task->getStatus(),
+                        'total_lines' => $task->getData()['total_lines'] ?? 0,
+                        'processed'   => $task->getResult()['processed'] ?? 0,
+                        'added'       => $task->getResult()['added'] ?? 0,
+                        'skipped'     => $task->getResult()['skipped'] ?? 0,
+                    ],
+                ]
+            ];
+
+            if ($task->getStatus() === Task::STATUS_FINISHED) {
+                $child_task = $this->findOneBy(['parent_task' => $task]);
+
+                if ($child_task) {
+                    $res['status']['stats'] = [
+                        'status'           => $child_task->getStatus(),
+                        'total_lines'      => $child_task->getResult()['total_lines'] ?? 0,
+                        'calculated_lines' => $child_task->getResult()['calculated_lines'] ?? 0,
+                    ];
+
+                    $res['stats_task_id'] = $child_task->getId();
+                }
+            }
+
+            $results[] = $res;
+        }
+
+        return $results;
     }
-
-
-
 }
