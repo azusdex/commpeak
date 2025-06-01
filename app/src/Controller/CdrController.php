@@ -86,9 +86,9 @@ final class CdrController extends AbstractController
         $task->setUpdatedAt(new \DateTimeImmutable());
         $em->flush();
 
-//        $runner->startBackgroundProcess(TaskRunnerService::TASK_RUN_COMMAND, [$task->getId()]);
+       $runner->startBackgroundProcess(TaskRunnerService::TASK_RUN_COMMAND, [$task->getId()]);
 
-        $stats_task->process($task);
+        // $stats_task->process($task);
 
         return $this->json([
             'task_id' => $task->getId(),
